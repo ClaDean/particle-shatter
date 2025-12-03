@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <title>粒子操控师 - 破碎版</title>
+    <link rel="apple-touch-icon" href="https://img.icons8.com/color/120/galaxy.png">
+    <style>
+        /* --- 基础样式 --- */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        canvas.webgl {
+            display: block;
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+
+        /* --- HUD 层 --- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* 状态栏 */
+        #status-bar {
+            position: absolute;
+            top: max(20px, env(safe-area-inset-top));
+            left: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #status-pill {
+            background: rgba(20, 20, 20, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            padding: 8px 18px;
+            border-radius: 30px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: border-color 0.3s, transform 0.2s;
+        }
+
+        #status-pill.active {
+            border-color: #00ff88;
+        }
+
+        #status-pill.pinch {
+            border-color: #ffcc00;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+            transition: 0.3s;
+            box-shadow: 0 0 5px #000;
+        }
+
+        /* 视觉准星 */
+        #hand-cursor {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            display: none;
+            transition: width 0.15s, height 0.15s, border-color 0.15s, background-color 0.15s;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            will-change: transform, left, top;
+        }
+
+        #hand-cursor.pinch {
+            width: 20px;
+            height: 20px;
+            background: #ffcc00;
+            border-color: #fff;
+            border-width: 3px;
+            box-shadow: 0 0 30px #ffcc00;
+        }
+
+        #hand-cursor.open {
+            width: 90px;
+            height: 90px;
+            border-color: #00aaff;
+            border-width: 2px;
+            border-style: dashed;
+            background: rgba(0, 170, 255, 0.1);
+            animation: spin-slow 8s linear infinite;
+        }
+
+        /* 侧边栏 */
+        #sidebar {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: auto;
+            background: rgba(30, 30, 35, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 24px;
+            padding: 20px 15px;
+            width: 150px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+            transition: opacity 0.3s;
+        }
+
+        .panel-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .panel-title {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            margin-left: 4px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .shape-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: none;
+            color: #ccc;
+            padding: 12px 0;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .btn:active {
+            transform: scale(0.92);
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn.active {
+            background: rgba(0, 255, 136, 0.25);
+            color: #00ff88;
+            font-weight: bold;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
+        }
+
+        /* AI 按钮 */
+        .btn.ai-btn {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            color: white;
+            font-weight: bold;
+            grid-column: span 2;
+            box-shadow: 0 0 15px rgba(100, 50, 255, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn.ai-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 颜色开关 */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #ccc;
+            padding: 4px 4px;
+            cursor: pointer;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: #555;
+            border-radius: 20px;
+            transition: 0.3s;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            transition: 0.3s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle-switch.checked {
+            background: #00ff88;
+        }
+
+        .toggle-switch.checked::after {
+            transform: translateX(16px);
+        }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 100%;
+            height: 40px;
+            border-radius: 10px;
+            cursor: pointer;
+            padding: 0;
+            background: none;
+        }
+
+        input[type="color"]::-webkit-color-swatch {
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+        }
+
+        /* AI 面板 */
+        #ai-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            width: 80%;
+            max-width: 320px;
+            background: rgba(20, 20, 25, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 25px;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        #ai-panel.show {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+            pointer-events: auto;
+        }
+
+        .ai-input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 12px;
+            border-radius: 12px;
+            margin: 15px 0;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        .ai-input::placeholder {
+            color: #aaa;
+        }
+
+        .ai-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .ai-submit {
+            background: #00ff88;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .ai-close {
+            background: transparent;
+            color: #aaa;
+            border: 1px solid #555;
+            padding: 10px 20px;
+            border-radius: 30px;
+            cursor: pointer;
+        }
+
+        /* 摄像头预览 */
+        #cam-preview {
+            position: absolute;
+            bottom: max(20px, env(safe-area-inset-bottom));
+            right: 20px;
+            width: 100px;
+            height: 75px;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: #000;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        /* 底部提示 */
+        #tips {
+            position: absolute;
+            bottom: max(30px, env(safe-area-inset-bottom));
+            left: 30px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 13px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            line-height: 1.6;
+        }
+
+        .key {
+            color: #00ff88;
+            font-weight: bold;
+            margin-right: 6px;
+            display: inline-block;
+            background: rgba(0, 255, 136, 0.1);
+            padding: 0 6px;
+            border-radius: 4px;
+        }
+
+        /* 加载动画 */
+        .loader {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes spin-slow {
+            to {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+    </style>
+
+    <script type="importmap">
+        { "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"
+        } }
+    </script>
+</head>
+
+<body>
+
+    <div id="container">
+        <canvas class="webgl" id="glCanvas"></canvas>
+
+        <div id="ui-layer">
+            <div id="status-bar">
+                <div id="status-pill">
+                    <div class="status-dot" id="status-dot"></div>
+                    <div class="loader" id="loading-icon"></div>
+                    <span id="status-text">初始化引擎...</span>
+                </div>
+            </div>
+            <div id="hand-cursor"></div>
+            <div id="tips">
+                <div><span class="key">🖐 张手</span> 崩解炸裂</div>
+                <div><span class="key">👌 捏合</span> 重组旋转</div>
+            </div>
+        </div>
+
+        <div id="cam-preview"><video id="webcam" playsinline autoplay muted></video></div>
+
+        <!-- AI 面板 -->
+        <div id="ai-panel">
+            <h3 style="color:white; margin:0 0 5px 0;">✨ AI 造物</h3>
+            <p style="color:#aaa; font-size:12px; margin:0;">描述你想要的形状，AI 将实时生成代码。</p>
+            <input type="text" id="ai-prompt" class="ai-input" placeholder="例如：一个旋转的 DNA 双螺旋，紫色和青色...">
+            <div class="ai-actions">
+                <button class="ai-close" onclick="closeAI()">取消</button>
+                <button class="ai-submit" onclick="submitAI()">生成创造</button>
+            </div>
+        </div>
+
+        <div id="sidebar">
+            <div class="panel-group">
+                <div class="panel-title">SHAPE 模型</div>
+                <div class="shape-grid">
+                    <div class="btn active" onclick="setShape('heart')">爱心</div>
+                    <div class="btn" onclick="setShape('saturn')">土星</div>
+                    <div class="btn" onclick="setShape('spiral')">螺旋</div>
+                    <div class="btn" onclick="setShape('flower')">花朵</div>
+                    <div class="btn" onclick="setShape('fireworks')">烟花</div>
+                    <div class="btn" onclick="setShape('sphere')">球体</div>
+
+                    <!-- AI 按钮 -->
+                    <div class="btn ai-btn" onclick="openAI()">
+                        <span>✨ AI 造物</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="width:100%; height:1px; background:rgba(255,255,255,0.1); margin: 5px 0;"></div>
+
+            <div class="panel-group">
+                <div class="panel-title">COLOR 色彩</div>
+                <div class="toggle-row" onclick="toggleRainbow()">
+                    <span>幻彩流光</span>
+                    <div class="toggle-switch" id="rainbow-switch"></div>
+                </div>
+                <div class="color-row">
+                    <input type="color" id="color-picker" value="#00ffff">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+
+        const apiKey = "";
+
+        // --- ⚡ 核心配置 ---
+        const CONFIG = {
+            count: 9000,      // 粒子数（可能会在移动端被动态降级）
+            size: 0.7,        // 粒子大小
+            inertia: 0.94,    // 旋转惯性
+            sensitivity: 3.5, // 旋转灵敏度
+            pinchEnter: 0.08, // 捏合判定 (进)
+            pinchExit: 0.15,  // 捏合判定 (出)
+            openThresh: 0.28  // 张手判定
+        };
+
+        // 移动端检测与性能降级
+        const isMobile = /Android|iPhone|iPad|iPod|Mobile|Phone/i.test(navigator.userAgent || '');
+        if (isMobile) {
+            // 手机性能通常较弱，降低粒子数与贴图像素比
+            CONFIG.count = Math.min(CONFIG.count, 2000);
+            CONFIG.size = Math.max(CONFIG.size, 0.8);
+            CONFIG.sensitivity = Math.max(1.8, CONFIG.sensitivity * 0.8);
+        }
+        const PIXEL_RATIO_CAP = isMobile ? Math.min(window.devicePixelRatio || 1, 1) : Math.min(window.devicePixelRatio || 1, 1.5);
+
+        const state = {
+            shape: 'heart',
+            expansion: 0,
+            targetExpansion: 0,
+            rotationX: 0, rotationY: 0,
+            velocityX: 0, velocityY: 0,
+            isPinching: false,
+            lastHandX: 0, lastHandY: 0,
+            baseColor: new THREE.Color(0x00ffff),
+            isRainbow: false,
+            handVisible: false,
+            aiCode: null
+        };
+
+        let scene, camera, renderer, particles, geometry, material;
+        let video, handLandmarker, lastVideoTime = -1;
+        const targets = [], positions = [];
+        // 💥 新增：存储每个粒子的随机炸裂方向
+        const explosionDirs = [];
+        const clock = new THREE.Clock();
+
+        // --- 1. Three.js 初始化 ---
+        function initThree() {
+            const glCanvas = document.getElementById('glCanvas');
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.02);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 35;
+
+            renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(PIXEL_RATIO_CAP);
+
+            geometry = new THREE.BufferGeometry();
+            const posArray = new Float32Array(CONFIG.count * 3);
+            const colArray = new Float32Array(CONFIG.count * 3);
+
+            for (let i = 0; i < CONFIG.count; i++) {
+                positions.push({ x: 0, y: 0, z: 0 });
+                targets.push({ x: 0, y: 0, z: 0 });
+                posArray[i * 3] = (Math.random() - 0.5) * 100;
+                posArray[i * 3 + 1] = (Math.random() - 0.5) * 100;
+                posArray[i * 3 + 2] = (Math.random() - 0.5) * 100;
+                colArray[i * 3] = 1; colArray[i * 3 + 1] = 1; colArray[i * 3 + 2] = 1;
+
+                // 💥 初始化随机炸裂向量 (单位球面上随机点)
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos((Math.random() * 2) - 1);
+                explosionDirs.push({
+                    x: Math.sin(phi) * Math.cos(theta),
+                    y: Math.sin(phi) * Math.sin(theta),
+                    z: Math.cos(phi)
+                });
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colArray, 3));
+
+            const texCanvas = document.createElement('canvas');
+            texCanvas.width = 32; texCanvas.height = 32;
+            const ctx = texCanvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.4, 'rgba(255,255,255,0.2)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, 32, 32);
+            const texture = new THREE.CanvasTexture(texCanvas);
+
+            material = new THREE.PointsMaterial({
+                size: CONFIG.size, map: texture, vertexColors: true,
+                transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            generateShape('heart');
+            animate();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        window.setShape = (type) => {
+            state.shape = type;
+            state.aiCode = null;
+            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+            if (event && event.currentTarget) event.currentTarget.classList.add('active');
+            generateShape(type);
+        }
+
+        window.toggleRainbow = () => {
+            state.isRainbow = !state.isRainbow;
+            document.getElementById('rainbow-switch').classList.toggle('checked', state.isRainbow);
+        }
+
+        document.getElementById('color-picker').addEventListener('input', (e) => {
+            state.baseColor.set(e.target.value);
+            if (state.isRainbow) toggleRainbow();
+        });
+
+        // --- AI 逻辑 ---
+        window.openAI = () => {
+            document.getElementById('ai-panel').classList.add('show');
+            document.getElementById('ai-prompt').focus();
+        };
+        window.closeAI = () => {
+            document.getElementById('ai-panel').classList.remove('show');
+        };
+
+        window.submitAI = async () => {
+            const prompt = document.getElementById('ai-prompt').value;
+            if (!prompt) return;
+            closeAI();
+            updateStatus("AI 正在思考...", "#aa00ff", "active");
+            document.getElementById('loading-icon').style.display = 'block';
+
+            try {
+                const result = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{
+                                text: `You are a 3D graphics assistant. The user wants a particle shape described as: '${prompt}'.
+                                Return a JSON object with:
+                                1. 'code': A valid JavaScript code snippet to calculate variables x, y, z for a single particle. Available variables: i (index), count (total particles). Use Math functions. Range approx -50 to 50.
+                                2. 'colors': An array of 2 hex color strings.
+                                Response must be valid JSON only.`
+                            }]
+                        }],
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+                const data = await result.json();
+                const content = JSON.parse(data.candidates[0].content.parts[0].text);
+                applyAIShape(content.code, content.colors);
+                updateStatus("✨ AI 生成完毕", "#00ff88");
+            } catch (e) {
+                console.error(e);
+                updateStatus("生成失败", "#ff4444");
+            } finally {
+                document.getElementById('loading-icon').style.display = 'none';
+            }
+        };
+
+        function applyAIShape(codeString, colors) {
+            try {
+                state.aiCode = new Function('i', 'count', 'Math', codeString + "; return {x,y,z};");
+                state.shape = 'ai';
+                if (colors && colors.length >= 1) {
+                    state.baseColor.set(colors[0]);
+                    document.getElementById('color-picker').value = colors[0];
+                }
+                generateShape('ai');
+                document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+                document.querySelector('.ai-btn').classList.add('active');
+            } catch (e) { updateStatus("代码有误", "#ff4444"); }
+        }
+
+        function generateShape(type) {
+            for (let i = 0; i < CONFIG.count; i++) {
+                let x = 0, y = 0, z = 0;
+                if (type === 'ai' && state.aiCode) {
+                    try { const res = state.aiCode(i, CONFIG.count, Math); x = res.x; y = res.y; z = res.z; } catch (e) { x = 0; y = 0; z = 0; }
+                }
+                else if (type === 'heart') {
+                    const t = Math.random() * Math.PI * 2, p = Math.random() * Math.PI;
+                    x = 16 * Math.pow(Math.sin(t), 3); y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t); z = 6 * Math.sin(t) * Math.cos(p) * 2;
+                } else if (type === 'saturn') {
+                    if (Math.random() > 0.4) {
+                        const t = Math.random() * Math.PI * 2, r = 16 + Math.random() * 8; x = r * Math.cos(t); z = r * Math.sin(t); y = (Math.random() - 0.5); let ty = y * Math.cos(0.5) - z * Math.sin(0.5), tz = y * Math.sin(0.5) + z * Math.cos(0.5); y = ty; z = tz;
+                    } else { const t = Math.random() * Math.PI * 2, p = Math.acos(2 * Math.random() - 1), r = 9; x = r * Math.sin(p) * Math.cos(t); y = r * Math.sin(p) * Math.sin(t); z = r * Math.cos(p); }
+                } else if (type === 'spiral') {
+                    const t = i * 0.1, r = Math.sqrt(i) * 0.5; x = r * Math.cos(t); z = r * Math.sin(t); y = (i / CONFIG.count) * 30 - 15;
+                } else if (type === 'flower') {
+                    const u = Math.random() * Math.PI * 2, v = Math.random() * Math.PI, r = 10 * Math.sin(4 * u); x = r * Math.sin(v) * Math.cos(u); y = r * Math.sin(v) * Math.sin(u); z = (Math.random() - 0.5) * 5;
+                } else if (type === 'fireworks' || type === 'sphere') {
+                    const t = Math.random() * Math.PI * 2, p = Math.acos(2 * Math.random() - 1), r = type === 'fireworks' ? Math.random() * 12 : 12;
+                    x = r * Math.sin(p) * Math.cos(t); y = r * Math.sin(p) * Math.sin(t); z = r * Math.cos(p);
+                }
+                targets[i] = { x, y, z };
+            }
+        }
+
+        // --- 2. AI 视觉 ---
+        async function initVision() {
+            updateStatus("正在加载 AI...", "#aaa");
+            try {
+                const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+
+                // 优先尝试 GPU delegate，失败则回退到 CPU（移动端/浏览器可能不支持 GPU delegate）
+                try {
+                    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                        baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "GPU" },
+                        runningMode: "VIDEO", numHands: 1,
+                        minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+                    });
+                    updateStatus("AI 已加载 (GPU)", "#00ff88");
+                } catch (gpuErr) {
+                    console.warn('GPU delegate failed, falling back to CPU', gpuErr);
+                    try {
+                        handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                            baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`, delegate: "CPU" },
+                            runningMode: "VIDEO", numHands: 1,
+                            minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+                        });
+                        updateStatus("AI 已加载 (CPU)", "#ffaa00");
+                    } catch (cpuErr) {
+                        console.error('Both GPU and CPU delegates failed', cpuErr);
+                        updateStatus("AI 加载失败", "#ff4444");
+                        return;
+                    }
+                }
+
+                setupCamera();
+            } catch (e) { updateStatus("AI 加载失败", "#ff4444"); }
+        }
+
+        function setupCamera() {
+            video = document.getElementById('webcam');
+            const constraints = { video: { width: isMobile ? 480 : 640, height: isMobile ? 360 : 480, facingMode: "user" } };
+            navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+                video.srcObject = stream;
+                video.addEventListener('loadeddata', () => {
+                    document.getElementById('loading-icon').style.display = 'none';
+                    updateStatus("系统就绪 | 请展示单手", "#00ff88");
+                    if (isMobile) updateStatus("已启用移动端性能模式", "#ffaa00");
+                    predictLoop();
+                });
+            }).catch(err => updateStatus("无法访问摄像头", "#ff4444"));
+        }
+
+        function predictLoop() {
+            if (video.currentTime !== lastVideoTime) {
+                lastVideoTime = video.currentTime;
+                const startTime = performance.now();
+                const result = handLandmarker.detectForVideo(video, startTime);
+
+                if (result.landmarks && result.landmarks.length > 0) {
+                    processGestures(result.landmarks[0]);
+                    state.handVisible = true;
+                } else {
+                    state.handVisible = false;
+                    state.isPinching = false;
+                    state.targetExpansion = 0;
+                    updateCursor(null);
+                }
+            }
+            requestAnimationFrame(predictLoop);
+        }
+
+        // --- 3. 手势逻辑 (核心算法) ---
+        function processGestures(hand) {
+            const wrist = hand[0];
+            const center = hand[9];
+            const tips = [8, 12, 16, 20];
+
+            let avgDist = 0;
+            tips.forEach(i => avgDist += Math.hypot(hand[i].x - wrist.x, hand[i].y - wrist.y));
+            avgDist /= 4;
+
+            const pinchDist = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y);
+
+            // 防抖状态切换
+            if (state.isPinching) {
+                if (pinchDist > CONFIG.pinchExit) state.isPinching = false;
+            } else {
+                if (pinchDist < CONFIG.pinchEnter) state.isPinching = true;
+            }
+
+            const cursorX = (1 - center.x) * window.innerWidth;
+            const cursorY = center.y * window.innerHeight;
+            let statusText = "等待指令";
+            let statusColor = "#666";
+            let cursorState = "";
+            let uiClass = "";
+
+            if (state.isPinching) {
+                // === 捏合 (旋转) ===
+                state.targetExpansion = 0; // 强制聚合
+                state.isOpen = false;
+
+                if (state.lastHandX === 0) {
+                    state.lastHandX = center.x;
+                    state.lastHandY = center.y;
+                }
+                const dx = center.x - state.lastHandX;
+                const dy = center.y - state.lastHandY;
+
+                // 旋转方向修正
+                state.velocityY -= dx * CONFIG.sensitivity;
+                state.velocityX += dy * CONFIG.sensitivity;
+
+                state.lastHandX = center.x;
+                state.lastHandY = center.y;
+
+                statusText = "✊ 抓取旋转";
+                statusColor = "#ffcc00";
+                cursorState = "pinch";
+                uiClass = "pinch";
+
+            } else {
+                // === 非捏合 (炸裂/悬停) ===
+                state.lastHandX = 0;
+                state.lastHandY = 0;
+
+                if (avgDist > CONFIG.openThresh) {
+                    state.isOpen = true;
+                    let factor = (avgDist - CONFIG.openThresh) * 6.0;
+                    state.targetExpansion = Math.min(factor, 3.0);
+
+                    statusText = "🖐 崩解炸裂";
+                    statusColor = "#00aaff";
+                    cursorState = "open";
+                    uiClass = "active";
+                } else {
+                    state.isOpen = false;
+                    state.targetExpansion = 0;
+                    statusText = "✨ 悬停重组";
+                    statusColor = "#00ff88";
+                }
+            }
+
+            updateCursor({ x: cursorX, y: cursorY, state: cursorState });
+            updateStatus(statusText, statusColor, uiClass);
+        }
+
+        // --- 4. 动画循环 (炸裂算法) ---
+        function animate() {
+            const time = clock.getElapsedTime();
+
+            state.expansion += (state.targetExpansion - state.expansion) * 0.1;
+
+            if (!state.isPinching) {
+                state.velocityX *= CONFIG.inertia;
+                state.velocityY *= CONFIG.inertia;
+            }
+            state.rotationX += state.velocityX * 0.01;
+            state.rotationY += state.velocityY * 0.01;
+
+            particles.rotation.x = state.rotationX;
+            particles.rotation.y = state.rotationY;
+
+            // 💥 炸裂逻辑：不再单纯放大，而是基于随机向量位移
+            // state.expansion 越大，粒子离原点越远
+            const shapePreserve = 1.0 + state.expansion * 0.2; // 微微放大原本形状
+            const shatterAmt = state.expansion * 30.0; // 剧烈的炸裂距离
+
+            const colorObj = new THREE.Color();
+            const posArr = particles.geometry.attributes.position.array;
+            const colArr = particles.geometry.attributes.color.array;
+
+            for (let i = 0; i < CONFIG.count; i++) {
+                const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
+
+                // 原始目标位置
+                let tx = targets[i].x;
+                let ty = targets[i].y;
+                let tz = targets[i].z;
+
+                // 核心：基于预计算的随机方向进行位移
+                const ex = explosionDirs[i].x;
+                const ey = explosionDirs[i].y;
+                const ez = explosionDirs[i].z;
+
+                // 最终位置 = 形状位置(微调) + 爆炸向量 * 强度
+                const destX = tx * shapePreserve + ex * shatterAmt;
+                const destY = ty * shapePreserve + ey * shatterAmt;
+                const destZ = tz * shapePreserve + ez * shatterAmt;
+
+                // 移动插值
+                posArr[ix] += (destX - posArr[ix]) * 0.15;
+                posArr[iy] += (destY - posArr[iy]) * 0.15;
+                posArr[iz] += (destZ - posArr[iz]) * 0.15;
+
+                if (state.isRainbow) {
+                    const hue = (i / CONFIG.count + time * 0.2) % 1.0;
+                    colorObj.setHSL(hue, 0.8, 0.6);
+                } else {
+                    colorObj.copy(state.baseColor);
+                }
+                colArr[ix] = colorObj.r; colArr[iy] = colorObj.g; colArr[iz] = colorObj.b;
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.geometry.attributes.color.needsUpdate = true;
+
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+
+        // --- UI ---
+        document.getElementById('color-picker').addEventListener('input', (e) => {
+            state.baseColor.set(e.target.value);
+            if (state.isRainbow) toggleRainbow();
+        });
+
+        function updateStatus(text, color, cls) {
+            document.getElementById('status-text').innerText = text;
+            const dot = document.querySelector('.status-dot');
+            const pill = document.getElementById('status-pill');
+
+            dot.style.background = color;
+            dot.style.boxShadow = `0 0 10px ${color}`;
+
+            pill.className = cls || '';
+            if (cls === 'pinch') pill.style.borderColor = '#ffcc00';
+            else if (cls === 'active') pill.style.borderColor = '#00aaff';
+            else pill.style.borderColor = 'rgba(255,255,255,0.15)';
+        }
+
+        function updateCursor(pos) {
+            const cursor = document.getElementById('hand-cursor');
+            if (!pos) { cursor.style.display = 'none'; return; }
+            cursor.style.display = 'block';
+            cursor.style.left = pos.x + 'px';
+            cursor.style.top = pos.y + 'px';
+            cursor.className = pos.state;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        initThree();
+        initVision();
+    </script>
+</body>
+
+</html>
